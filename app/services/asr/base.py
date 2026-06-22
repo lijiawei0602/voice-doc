@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from app.models.schemas import TranscriptSegment
 
@@ -12,7 +12,7 @@ from app.models.schemas import TranscriptSegment
 class EngineResult:
     text: str
     segments: list[TranscriptSegment]
-    language: str | None = None
+    language: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

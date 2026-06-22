@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from app.core.config import get_settings
 from app.core.exceptions import AppError, ERRORS
@@ -19,7 +19,7 @@ class FunAsrEngine(BaseAsrEngine):
     def __init__(self) -> None:
         self.settings = get_settings()
         self.device = detect_device()
-        self.model: Any | None = None
+        self.model: Optional[Any] = None
 
     def load(self) -> None:
         if self.model is not None:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+# from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from typing import Optional
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -12,6 +14,8 @@ from app.core.logging import get_logger
 from app.models.schemas import TaskStatusPayload, TranscriptResult
 from app.services.pipeline.transcription_service import TranscriptionService
 from app.utils.json_store import read_json, write_json
+
+UTC = timezone.utc
 
 logger = get_logger(__name__)
 
@@ -92,11 +96,11 @@ class TaskManager:
         self,
         task_id: str,
         status: str,
-        source: str | None,
-        result_path: str | None = None,
-        error_code: str | None = None,
-        error_message: str | None = None,
-        result: TranscriptResult | None = None,
+        source: Optional[str],
+        result_path: Optional[str] = None,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+        result: Optional[TranscriptResult] = None,
     ) -> dict:
         old = {}
         task_file = self.settings.task_dir / f"{task_id}.json"

@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional, Union
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     batch_size_seconds: int = 300
     denoise_enabled: bool = True
 
-    supported_audio_extensions: list[str] = Field(
+    supported_audio_extensions: Union[str, list[str]] = Field(
         default_factory=lambda: [".mp3", ".wav", ".flac", ".m4a"]
     )
 
@@ -42,13 +42,13 @@ class Settings(BaseSettings):
     funasr_hub: str = "ms"
 
     whisper_model: str = "small"
-    whisper_language: str | None = None
+    whisper_language: Optional[str] = None
     whisper_download_root: Path = Path("./models/whisper")
     whisper_compute_type: Literal["float16", "int8", "float32"] = "float16"
 
     pyannote_model: str = "pyannote/speaker-diarization-3.1"
-    pyannote_auth_token: str | None = None
-    pyannote_num_speakers: int | None = None
+    pyannote_auth_token: Optional[str] = None
+    pyannote_num_speakers: Optional[int] = None
 
     task_worker_count: int = 2
 
@@ -69,15 +69,32 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def _expand_path(cls, value: str | Path) -> Path:
+    def _expand_path(cls, value: Union[str, Path]) -> Path:
         return Path(value).expanduser().resolve()
 
     @field_validator("supported_audio_extensions", mode="before")
     @classmethod
-    def _parse_extensions(cls, value: str | list[str]) -> list[str]:
+    def _parse_extensions_before(cls, value: Union[str, list[str]]) -> Union[str, list[str]]:
+        return value
+
+    @field_validator("supported_audio_extensions", mode="after")
+    @classmethod
+    def _parse_extensions_after(cls, value: Union[str, list[str]]) -> list[str]:
         if isinstance(value, str):
             return [item.strip().lower() for item in value.split(",") if item.strip()]
         return [item.lower() for item in value]
+
+    @field_validator(
+        "whisper_language",
+        "pyannote_auth_token",
+        "pyannote_num_speakers",
+        mode="before"
+    )
+    @classmethod
+    def _empty_str_to_none(cls, value: Optional[Union[str, int]]) -> Optional[Union[str, int]]:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     def ensure_directories(self) -> None:
         for path in (

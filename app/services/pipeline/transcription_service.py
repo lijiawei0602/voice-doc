@@ -143,7 +143,7 @@ class TranscriptionService:
         return speakers
 
     @staticmethod
-    def _first_chunk_language(metadata: dict[str, object]) -> str | None:
+    def _first_chunk_language(metadata: dict[str, object]) -> Optional[str]:
         first_chunk = metadata.get("chunk_0")
         if isinstance(first_chunk, dict):
             language = first_chunk.get("language")
