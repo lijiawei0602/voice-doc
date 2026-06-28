@@ -130,6 +130,11 @@ chmod +x scripts/start.sh
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+rm -rf .venv
+uv venv --python=python3.10
+source .venv/bin/activate
+uv pip install -r requirements.txt
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Swagger 文档：
