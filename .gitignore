@@ -6,4 +6,4 @@ logs/*.log
 data/tmp/
 data/results/*.json
 data/tasks/*.json
-models/
+/models/
