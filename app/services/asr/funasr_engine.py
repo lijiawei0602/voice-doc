@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
+
+import numpy as np
 
 from app.core.config import get_settings
 from app.core.exceptions import AppError, ERRORS
 from app.core.logging import get_logger
+from app.models.schemas import StreamingSegment, StreamingResult
 from app.models.schemas import TranscriptSegment
 from app.services.asr.base import BaseAsrEngine, EngineResult
 from app.utils.device import detect_device
 
 logger = get_logger(__name__)
+
+# 流式识别默认参数（参考 FunASR 官方示例）
+DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
+DEFAULT_SAMPLE_RATE = 16000
 
 
 class FunAsrEngine(BaseAsrEngine):
@@ -20,6 +29,7 @@ class FunAsrEngine(BaseAsrEngine):
         self.settings = get_settings()
         self.device = detect_device()
         self.model: Optional[Any] = None
+        self._streaming_sessions: dict[str, dict] = {}
 
     def load(self) -> None:
         if self.model is not None:
@@ -50,6 +60,193 @@ class FunAsrEngine(BaseAsrEngine):
         except Exception as exc:
             logger.error("FunASR 模型加载失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
+
+    def create_streaming_session(
+        self,
+        chunk_size: list[int] | None = None,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> str:
+        """创建流式识别会话
+
+        Args:
+            chunk_size:  chunk 大小配置 [left_chunks, middle_chunks, right_chunks]
+                        默认 [0, 10, 5]，表示 600ms 显示，300ms 前瞻
+            sample_rate: 采样率，默认 16000
+        """
+        self.load()
+        session_id = uuid4().hex
+        chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
+
+        self._streaming_sessions[session_id] = {
+            "session_id": session_id,
+            "cache": {},
+            "segment_id": 0,
+            "full_text": "",
+            "chunk_size": chunk_size,
+            "chunk_stride": chunk_size[1] * sample_rate // 10,  # 每块采样点数
+            "sample_rate": sample_rate,
+            "last_text": "",  # 用于增量输出
+        }
+        logger.info("创建流式会话: session_id=%s, chunk_size=%s", session_id, chunk_size)
+        return session_id
+
+    def close_streaming_session(self, session_id: str) -> None:
+        """关闭流式识别会话"""
+        if session_id in self._streaming_sessions:
+            del self._streaming_sessions[session_id]
+            logger.info("关闭流式会话: session_id=%s", session_id)
+
+    async def stream_transcribe(
+        self,
+        session_id: str,
+        audio_chunk: np.ndarray,
+        is_final: bool = False,
+        encoder_chunk_look_back: int = 4,
+        decoder_chunk_look_back: int = 1,
+    ) -> StreamingSegment | None:
+        """处理单个音频块进行流式识别
+
+        Args:
+            session_id: 会话ID
+            audio_chunk: numpy 音频数组（float32，16kHz）
+            is_final: 是否为最后一个音频块
+            encoder_chunk_look_back: encoder 回看块数
+            decoder_chunk_look_back: decoder 回看块数
+
+        Returns:
+            StreamingSegment: 识别片段（仅当有新文本时返回）
+        """
+        if session_id not in self._streaming_sessions:
+            session_id = self.create_streaming_session()
+
+        session = self._streaming_sessions[session_id]
+
+        try:
+            if len(audio_chunk) < 1600:  # 音频太短，忽略
+                return None
+
+            generate_kwargs = {
+                "input": audio_chunk,
+                "cache": session["cache"],
+                "is_final": is_final,
+                "chunk_size": session["chunk_size"],
+                "encoder_chunk_look_back": encoder_chunk_look_back,
+                "decoder_chunk_look_back": decoder_chunk_look_back,
+            }
+
+            raw = await asyncio.to_thread(
+                self.model.generate, **generate_kwargs
+            )
+
+            result = raw[0] if isinstance(raw, list) else raw
+            session["cache"] = result.get("cache", {})
+
+            text = str(result.get("text", "")).strip()
+            if not text:
+                return None
+
+            # 计算增量文本
+            incremental_text = text
+            if not is_final and text.startswith(session["last_text"]):
+                incremental_text = text[len(session["last_text"]):]
+            session["last_text"] = text
+
+            segment = StreamingSegment(
+                segment_id=session["segment_id"],
+                text=incremental_text,
+                start_ms=0,
+                end_ms=0,
+                is_final=is_final,
+                speaker="spk0",
+            )
+            session["segment_id"] += 1
+            session["full_text"] += incremental_text
+
+            return segment
+
+        except Exception as exc:
+            logger.error("流式识别失败: session_id=%s, error=%s", session_id, exc)
+            raise AppError(ERRORS["TRANSCRIPTION_FAILED"]) from exc
+
+    async def stream_audio(
+        self,
+        session_id: str,
+        audio_data: np.ndarray,
+        is_final: bool = False,
+        encoder_chunk_look_back: int = 4,
+        decoder_chunk_look_back: int = 1,
+    ) -> list[StreamingSegment]:
+        """对完整音频数据进行分块流式识别
+
+        Args:
+            session_id: 会话ID
+            audio_data: 完整音频数据（float32，16kHz）
+            is_final: 是否为最后一个音频块
+            encoder_chunk_look_back: encoder 回看块数
+            decoder_chunk_look_back: decoder 回看块数
+
+        Returns:
+            list[StreamingSegment]: 所有识别片段
+        """
+        if session_id not in self._streaming_sessions:
+            session_id = self.create_streaming_session()
+
+        session = self._streaming_sessions[session_id]
+        chunk_stride = session["chunk_stride"]
+
+        segments = []
+        total_chunks = int((len(audio_data) - 1) / chunk_stride + 1)
+
+        for i in range(total_chunks):
+            chunk = audio_data[i * chunk_stride:(i + 1) * chunk_stride]
+            chunk_is_final = is_final or (i == total_chunks - 1)
+
+            segment = await self.stream_transcribe(
+                session_id=session_id,
+                audio_chunk=chunk,
+                is_final=chunk_is_final,
+                encoder_chunk_look_back=encoder_chunk_look_back,
+                decoder_chunk_look_back=decoder_chunk_look_back,
+            )
+
+            if segment:
+                segments.append(segment)
+
+        return segments
+
+    async def stream_transcribe_bytes(
+        self,
+        session_id: str,
+        audio_bytes: bytes,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        is_final: bool = False,
+    ) -> StreamingResult:
+        """从字节数据流式识别
+
+        Args:
+            session_id: 会话ID
+            audio_bytes: PCM 音频数据（16位整数）
+            sample_rate: 采样率
+            is_final: 是否为最后一个音频块
+
+        Returns:
+            StreamingResult: 流式识别结果
+        """
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+        audio_float = audio_array.astype(np.float32) / 32768.0
+
+        segments = await self.stream_audio(
+            session_id=session_id,
+            audio_data=audio_float,
+            is_final=is_final,
+        )
+
+        session = self._streaming_sessions.get(session_id, {})
+        return StreamingResult(
+            session_id=session_id,
+            text=session.get("full_text", ""),
+            segments=segments,
+        )
 
     def transcribe(self, audio_path: Path) -> EngineResult:
         self.load()
