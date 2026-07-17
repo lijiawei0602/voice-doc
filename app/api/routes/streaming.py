@@ -99,19 +99,26 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                     msg_type = message.get("type", "")
 
                     if msg_type == "start":
-                        chunk_size = message.get("chunk_size", DEFAULT_CHUNK_SIZE)
+                        chunk_size = message.get("chunk_size")
                         # 解析字符串形式的 chunk_size
-                        if isinstance(chunk_size, str):
-                            try:
-                                chunk_size = json.loads(chunk_size)
-                            except json.JSONDecodeError:
+                        if chunk_size is not None:
+                            if isinstance(chunk_size, str):
+                                try:
+                                    chunk_size = json.loads(chunk_size)
+                                except json.JSONDecodeError:
+                                    chunk_size = DEFAULT_CHUNK_SIZE
+                            elif not isinstance(chunk_size, (list, tuple)):
                                 chunk_size = DEFAULT_CHUNK_SIZE
+                        else:
+                            chunk_size = DEFAULT_CHUNK_SIZE
+                        
+                        logger.info("收到 start 消息: %s", message)
                         session_id = engine.create_streaming_session(chunk_size=chunk_size)
                         await websocket.send_json({
                             "type": "started",
                             "session_id": session_id
                         })
-                        logger.info("流式识别会话创建: session_id=%s, chunk_size=%s", session_id, chunk_size)
+                        logger.info("流式识别会话创建成功: session_id=%s, chunk_size=%s", session_id, chunk_size)
 
                     elif msg_type == "end":
                         if session_id:

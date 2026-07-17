@@ -99,7 +99,22 @@ class FunAsrEngine(BaseAsrEngine):
         """
         self.load()
         session_id = uuid4().hex
-        chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
+        
+        # 验证 chunk_size 类型
+        if chunk_size is None:
+            chunk_size = DEFAULT_CHUNK_SIZE
+        
+        # 确保是有效列表且有足够元素
+        if not isinstance(chunk_size, (list, tuple)) or len(chunk_size) < 2:
+            logger.warning("无效的 chunk_size: %s，使用默认值", chunk_size)
+            chunk_size = DEFAULT_CHUNK_SIZE
+        
+        # 确保元素是整数
+        try:
+            chunk_size = [int(x) for x in chunk_size[:3]]  # 只取前3个元素
+        except (ValueError, TypeError) as e:
+            logger.warning("chunk_size 包含非整数元素: %s，使用默认值", chunk_size)
+            chunk_size = DEFAULT_CHUNK_SIZE
 
         self._streaming_sessions[session_id] = {
             "session_id": session_id,
