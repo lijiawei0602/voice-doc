@@ -286,7 +286,19 @@ class FunAsrEngine(BaseAsrEngine):
             logger.error("FunASR 推理失败: %s", exc)
             raise AppError(ERRORS["TRANSCRIPTION_FAILED"]) from exc
 
-        result = raw[0] if isinstance(raw, list) else raw
+        # 处理空结果
+        if isinstance(raw, list):
+            if len(raw) == 0:
+                logger.warning("FunASR 返回空结果: %s", audio_path)
+                return EngineResult(
+                    text="",
+                    segments=[],
+                    language=None,
+                    metadata={"raw_sentence_count": 0},
+                )
+            result = raw[0]
+        else:
+            result = raw
         sentence_info = result.get("sentence_info", []) or []
 
         segments: list[TranscriptSegment] = []

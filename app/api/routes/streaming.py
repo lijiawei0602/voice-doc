@@ -86,9 +86,18 @@ async def websocket_stream_transcribe(websocket: WebSocket):
         logger.info("WebSocket 连接已接受")
 
         while True:
+            # 检查 WebSocket 连接状态
+            if websocket.client_state.CONNECTED != 1:
+                logger.info("WebSocket 已断开")
+                break
+
             try:
                 data = await websocket.receive()
+            except WebSocketDisconnect:
+                logger.info("WebSocket 客户端断开连接: session_id=%s", session_id)
+                break
 
+            try:
                 if "text" in data:
                     message = json.loads(data["text"])
                     msg_type = message.get("type", "")
@@ -123,7 +132,7 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
                         audio_float = audio_array.astype(np.float32) / 32768.0
 
-                        # 流式识别（这里模拟增量输出）
+                        # 流式识别
                         segment = await engine.stream_transcribe(
                             session_id, audio_float, is_final=False
                         )
@@ -145,10 +154,13 @@ async def websocket_stream_transcribe(websocket: WebSocket):
             except Exception as exc:
                 logger.error("WebSocket 处理异常: %s", exc)
                 if session_id:
-                    await manager.send_json(
-                        session_id,
-                        {"type": "error", "error": str(exc)}
-                    )
+                    try:
+                        await manager.send_json(
+                            session_id,
+                            {"type": "error", "error": str(exc)}
+                        )
+                    except Exception:
+                        pass
                 break
 
     except Exception as exc:
