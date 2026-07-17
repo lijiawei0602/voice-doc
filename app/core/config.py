@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     denoise_enabled: bool = True
 
     supported_audio_extensions: Union[str, list[str]] = Field(
-        default_factory=lambda: [".mp3", ".wav", ".flac", ".m4a"]
+        default_factory=lambda: [".mp3", ".wav", ".flac", ".m4a", ".webm", ".ogg", ".aac"]
     )
 
     funasr_model: str = "paraformer-zh"
