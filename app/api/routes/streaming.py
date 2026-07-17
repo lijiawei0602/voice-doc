@@ -100,6 +100,12 @@ async def websocket_stream_transcribe(websocket: WebSocket):
 
                     if msg_type == "start":
                         chunk_size = message.get("chunk_size", DEFAULT_CHUNK_SIZE)
+                        # 解析字符串形式的 chunk_size
+                        if isinstance(chunk_size, str):
+                            try:
+                                chunk_size = json.loads(chunk_size)
+                            except json.JSONDecodeError:
+                                chunk_size = DEFAULT_CHUNK_SIZE
                         session_id = engine.create_streaming_session(chunk_size=chunk_size)
                         await websocket.send_json({
                             "type": "started",
