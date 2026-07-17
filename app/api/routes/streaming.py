@@ -80,17 +80,13 @@ async def websocket_stream_transcribe(websocket: WebSocket):
 
     session_id: Optional[str] = None
     engine = get_funasr_engine()
+    connected = True
 
     try:
         await websocket.accept()
         logger.info("WebSocket 连接已接受")
 
-        while True:
-            # 检查 WebSocket 连接状态
-            if websocket.client_state.CONNECTED != 1:
-                logger.info("WebSocket 已断开")
-                break
-
+        while connected:
             try:
                 data = await websocket.receive()
             except WebSocketDisconnect:
@@ -105,24 +101,24 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                     if msg_type == "start":
                         chunk_size = message.get("chunk_size", DEFAULT_CHUNK_SIZE)
                         session_id = engine.create_streaming_session(chunk_size=chunk_size)
-                        await manager.send_json(
-                            session_id,
-                            {"type": "started", "session_id": session_id}
-                        )
+                        await websocket.send_json({
+                            "type": "started",
+                            "session_id": session_id
+                        })
                         logger.info("流式识别会话创建: session_id=%s, chunk_size=%s", session_id, chunk_size)
 
                     elif msg_type == "end":
                         if session_id:
-                            await manager.send_json(
-                                session_id,
-                                {"type": "finished", "session_id": session_id}
-                            )
+                            await websocket.send_json({
+                                "type": "finished",
+                                "session_id": session_id
+                            })
 
                     elif msg_type == "close":
                         close_session_id = message.get("session_id", session_id)
                         if close_session_id:
                             engine.close_streaming_session(close_session_id)
-                            await manager.disconnect(close_session_id)
+                        connected = False
                         break
 
                 elif "bytes" in data:
@@ -138,29 +134,26 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                         )
 
                         if segment and segment.text:
-                            await manager.send_json(
-                                session_id,
-                                {
-                                    "type": "segment",
-                                    "segment_id": segment.segment_id,
-                                    "text": segment.text,
-                                    "is_final": segment.is_final,
-                                }
-                            )
+                            await websocket.send_json({
+                                "type": "segment",
+                                "segment_id": segment.segment_id,
+                                "text": segment.text,
+                                "is_final": segment.is_final,
+                            })
 
             except WebSocketDisconnect:
                 logger.info("WebSocket 客户端断开连接: session_id=%s", session_id)
                 break
             except Exception as exc:
                 logger.error("WebSocket 处理异常: %s", exc)
-                if session_id:
-                    try:
-                        await manager.send_json(
-                            session_id,
-                            {"type": "error", "error": str(exc)}
-                        )
-                    except Exception:
-                        pass
+                try:
+                    if session_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": str(exc)
+                        })
+                except Exception:
+                    pass
                 break
 
     except Exception as exc:
@@ -168,5 +161,4 @@ async def websocket_stream_transcribe(websocket: WebSocket):
     finally:
         if session_id:
             engine.close_streaming_session(session_id)
-            await manager.disconnect(session_id)
         logger.info("WebSocket 会话结束: session_id=%s", session_id)
