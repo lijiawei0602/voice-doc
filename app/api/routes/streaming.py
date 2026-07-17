@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.logging import get_logger
-from app.services.asr.funasr_engine import FunAsrEngine, DEFAULT_CHUNK_SIZE
+from app.services.asr.funasr_engine import get_funasr_engine, DEFAULT_CHUNK_SIZE
 
 logger = get_logger(__name__)
 
@@ -79,7 +79,7 @@ async def websocket_stream_transcribe(websocket: WebSocket):
     import numpy as np
 
     session_id: Optional[str] = None
-    engine = FunAsrEngine()
+    engine = get_funasr_engine()
 
     try:
         await websocket.accept()

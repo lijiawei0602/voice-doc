@@ -21,18 +21,41 @@ logger = get_logger(__name__)
 DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
 DEFAULT_SAMPLE_RATE = 16000
 
+# 模块级单例（类变量）
+_instance: Optional["FunAsrEngine"] = None
+_model_loaded: bool = False
+
+
+def get_funasr_engine() -> "FunAsrEngine":
+    """获取 FunAsrEngine 单例实例（线程安全）"""
+    global _instance
+    if _instance is None:
+        _instance = FunAsrEngine()
+        _instance.load()
+    return _instance
+
 
 class FunAsrEngine(BaseAsrEngine):
     engine_name = "funasr"
 
+    # 类级别的模型实例，所有实例共享
+    _shared_model: Optional[Any] = None
+    _model_initialized: bool = False
+
     def __init__(self) -> None:
         self.settings = get_settings()
         self.device = detect_device()
-        self.model: Optional[Any] = None
         self._streaming_sessions: dict[str, dict] = {}
 
+    @property
+    def model(self) -> Any:
+        """延迟加载模型，使用类级别共享实例"""
+        return self._shared_model
+
     def load(self) -> None:
-        if self.model is not None:
+        """加载模型（类级别，只加载一次）"""
+        if FunAsrEngine._model_initialized:
+            logger.debug("FunASR 模型已加载，跳过")
             return
 
         try:
@@ -52,10 +75,11 @@ class FunAsrEngine(BaseAsrEngine):
         }
         try:
             try:
-                self.model = AutoModel(**model_kwargs)
+                FunAsrEngine._shared_model = AutoModel(**model_kwargs)
             except TypeError:
                 model_kwargs.pop("model_cache_dir", None)
-                self.model = AutoModel(**model_kwargs)
+                FunAsrEngine._shared_model = AutoModel(**model_kwargs)
+            FunAsrEngine._model_initialized = True
             logger.info("FunASR 模型加载完成，device=%s", self.device)
         except Exception as exc:
             logger.error("FunASR 模型加载失败: %s", exc)

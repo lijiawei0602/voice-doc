@@ -14,17 +14,38 @@ from app.utils.device import detect_device
 logger = get_logger(__name__)
 
 
+def get_whisper_engine() -> "WhisperEngine":
+    """获取 WhisperEngine 单例实例"""
+    global _whisper_instance
+    if _whisper_instance is None:
+        _whisper_instance = WhisperEngine()
+        _whisper_instance.load()
+    return _whisper_instance
+
+
+# 模块级单例
+_whisper_instance: Optional["WhisperEngine"] = None
+
+
 class WhisperEngine(BaseAsrEngine):
     engine_name = "whisper"
+
+    # 类级别的模型实例
+    _shared_model: Optional[Any] = None
+    _model_initialized: bool = False
 
     def __init__(self) -> None:
         self.settings = get_settings()
         self.device = detect_device()
-        self.model: Optional[Any] = None
         self.diarizer = PyannoteDiarizer()
 
+    @property
+    def model(self) -> Any:
+        return self._shared_model
+
     def load(self) -> None:
-        if self.model is not None:
+        if WhisperEngine._model_initialized:
+            logger.debug("Whisper 模型已加载，跳过")
             return
 
         try:
@@ -34,11 +55,12 @@ class WhisperEngine(BaseAsrEngine):
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
         try:
-            self.model = whisper.load_model(
+            WhisperEngine._shared_model = whisper.load_model(
                 self.settings.whisper_model,
                 download_root=str(self.settings.whisper_download_root),
                 device="cuda" if self.device.startswith("cuda") else "cpu",
             )
+            WhisperEngine._model_initialized = True
             logger.info("Whisper 模型加载完成，device=%s", self.device)
         except Exception as exc:
             logger.error("Whisper 模型加载失败: %s", exc)

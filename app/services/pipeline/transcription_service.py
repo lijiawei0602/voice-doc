@@ -9,8 +9,8 @@ from app.core.exceptions import AppError, ERRORS
 from app.core.logging import get_logger
 from app.models.schemas import SpeakerSummary, TranscriptResult, TranscriptSegment
 from app.services.asr.base import BaseAsrEngine, EngineResult
-from app.services.asr.funasr_engine import FunAsrEngine
-from app.services.asr.whisper_engine import WhisperEngine
+from app.services.asr.funasr_engine import get_funasr_engine
+from app.services.asr.whisper_engine import get_whisper_engine
 from app.services.audio.chunking import AudioChunk, split_audio_if_needed
 from app.services.audio.preprocess import preprocess_audio
 from app.utils.device import detect_device
@@ -87,9 +87,9 @@ class TranscriptionService:
 
     def _build_engine(self) -> BaseAsrEngine:
         if self.settings.engine == "funasr":
-            return FunAsrEngine()
+            return get_funasr_engine()
         if self.settings.engine == "whisper":
-            return WhisperEngine()
+            return get_whisper_engine()
         raise AppError(ERRORS["INTERNAL_ERROR"])
 
     @staticmethod
