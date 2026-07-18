@@ -143,6 +143,12 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                         # 接收 PCM 音频数据并转换为 numpy 数组
                         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
                         audio_float = audio_array.astype(np.float32) / 32768.0
+                        
+                        # 检查音频数据质量
+                        audio_sum = float(np.abs(audio_float).sum())
+                        audio_avg = audio_sum / len(audio_float) if len(audio_float) > 0 else 0
+                        logger.info("音频数据质量: session_id=%s, avg=%.6f, min=%.6f, max=%.6f",
+                                   session_id, audio_avg, float(audio_float.min()), float(audio_float.max()))
 
                         # 流式识别
                         segment = await engine.stream_transcribe(
