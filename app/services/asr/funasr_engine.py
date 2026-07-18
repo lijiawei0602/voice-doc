@@ -159,6 +159,21 @@ class FunAsrEngine(BaseAsrEngine):
             session_id = self.create_streaming_session()
 
         session = self._streaming_sessions[session_id]
+        
+        # 确保 chunk_size 是正确的列表类型
+        chunk_size = session.get("chunk_size", DEFAULT_CHUNK_SIZE)
+        if isinstance(chunk_size, str):
+            try:
+                import json as json_lib
+                chunk_size = json_lib.loads(chunk_size)
+            except Exception:
+                chunk_size = DEFAULT_CHUNK_SIZE
+        if not isinstance(chunk_size, (list, tuple)) or len(chunk_size) < 2:
+            chunk_size = DEFAULT_CHUNK_SIZE
+        try:
+            chunk_size = [int(x) for x in chunk_size[:3]]
+        except (ValueError, TypeError):
+            chunk_size = DEFAULT_CHUNK_SIZE
 
         try:
             if len(audio_chunk) < 1600:  # 音频太短，忽略
@@ -168,7 +183,7 @@ class FunAsrEngine(BaseAsrEngine):
                 "input": audio_chunk,
                 "cache": session["cache"],
                 "is_final": is_final,
-                "chunk_size": session["chunk_size"],
+                "chunk_size": chunk_size,
                 "encoder_chunk_look_back": encoder_chunk_look_back,
                 "decoder_chunk_look_back": decoder_chunk_look_back,
             }
