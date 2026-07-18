@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     )
 
     funasr_model: str = "paraformer-zh"
+    funasr_streaming_model: str = "paraformer-zh-streaming"
     funasr_vad_model: str = "fsmn-vad"
     funasr_punc_model: str = "ct-punc"
     funasr_spk_model: str = "cam++"

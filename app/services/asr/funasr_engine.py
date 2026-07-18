@@ -40,6 +40,7 @@ class FunAsrEngine(BaseAsrEngine):
 
     # 类级别的模型实例，所有实例共享
     _shared_model: Optional[Any] = None
+    _streaming_model: Optional[Any] = None  # 流式识别专用模型
     _model_initialized: bool = False
 
     def __init__(self) -> None:
@@ -86,6 +87,34 @@ class FunAsrEngine(BaseAsrEngine):
             logger.error("FunASR 模型加载失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
+    def load_streaming_model(self) -> None:
+        """加载流式识别专用模型"""
+        if FunAsrEngine._streaming_model is not None:
+            return
+
+        try:
+            from funasr import AutoModel
+        except Exception as exc:
+            logger.error("FunASR 流式模型导入失败: %s", exc)
+            raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
+
+        model_kwargs = {
+            "model": self.settings.funasr_streaming_model,
+            "device": self.device,
+            "hub": self.settings.funasr_hub,
+            "model_cache_dir": str(self.settings.model_cache_dir),
+        }
+        try:
+            try:
+                FunAsrEngine._streaming_model = AutoModel(**model_kwargs)
+            except TypeError:
+                model_kwargs.pop("model_cache_dir", None)
+                FunAsrEngine._streaming_model = AutoModel(**model_kwargs)
+            logger.info("FunASR 流式模型加载完成，model=%s", self.settings.funasr_streaming_model)
+        except Exception as exc:
+            logger.error("FunASR 流式模型加载失败: %s", exc)
+            raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
+
     def create_streaming_session(
         self,
         chunk_size: list[int] | None = None,
@@ -98,7 +127,9 @@ class FunAsrEngine(BaseAsrEngine):
                         默认 [0, 10, 5]，表示 600ms 显示，300ms 前瞻
             sample_rate: 采样率，默认 16000
         """
-        self.load()
+        # 加载流式专用模型
+        self.load_streaming_model()
+        
         session_id = uuid4().hex
         
         # 验证 chunk_size 类型
@@ -190,7 +221,7 @@ class FunAsrEngine(BaseAsrEngine):
             }
 
             raw = await asyncio.to_thread(
-                self.model.generate, **generate_kwargs
+                FunAsrEngine._streaming_model.generate, **generate_kwargs
             )
 
             result = raw[0] if isinstance(raw, list) else raw
@@ -222,9 +253,6 @@ class FunAsrEngine(BaseAsrEngine):
         except Exception as exc:
             import traceback
             logger.error("流式识别失败: session_id=%s, error=%s", session_id, exc)
-            logger.error("chunk_size 类型: %s, 值: %s", type(chunk_size), chunk_size)
-            logger.error("音频块长度: %s", len(audio_chunk) if audio_chunk is not None else "None")
-            logger.error("generate_kwargs: %s", generate_kwargs)
             logger.error("异常堆栈: %s", traceback.format_exc())
             raise AppError(ERRORS["TRANSCRIPTION_FAILED"]) from exc
 
