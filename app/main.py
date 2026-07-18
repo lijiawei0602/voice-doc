@@ -27,6 +27,33 @@ app.include_router(api_router)
 @app.on_event("startup")
 def on_startup() -> None:
     logger.info(
+        "服务启动: app=%s engine=%s port=%s",
+        settings.app_name,
+        settings.engine,
+        settings.port,
+    )
+    
+    # 预加载模型
+    if settings.preload_models_on_startup:
+        logger.info("开始预加载模型...")
+        try:
+            from app.services.asr.funasr_engine import get_funasr_engine
+            
+            # 加载普通识别模型
+            logger.info("  - 加载普通识别模型: %s", settings.funasr_model)
+            engine = get_funasr_engine()
+            logger.info("  ✓ 普通识别模型加载完成")
+            
+            # 加载流式识别模型
+            logger.info("  - 加载流式识别模型: %s", settings.funasr_streaming_model)
+            engine.load_streaming_model()
+            logger.info("  ✓ 流式识别模型加载完成")
+            
+            logger.info("模型预加载完成!")
+        except Exception as exc:
+            logger.warning("模型预加载失败，将在首次请求时加载: %s", exc)
+    
+    logger.info(
         "服务启动完成: app=%s engine=%s port=%s",
         settings.app_name,
         settings.engine,

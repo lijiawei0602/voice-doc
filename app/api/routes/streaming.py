@@ -137,6 +137,9 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                 elif "bytes" in data:
                     audio_bytes = data["bytes"]
                     if session_id and audio_bytes:
+                        logger.info("收到音频数据: session_id=%s, bytes_length=%s", 
+                                   session_id, len(audio_bytes))
+                        
                         # 接收 PCM 音频数据并转换为 numpy 数组
                         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
                         audio_float = audio_array.astype(np.float32) / 32768.0
@@ -147,12 +150,17 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                         )
 
                         if segment and segment.text:
+                            logger.info("发送识别结果: session_id=%s, segment_id=%s, text='%s'",
+                                       session_id, segment.segment_id, segment.text)
                             await websocket.send_json({
                                 "type": "segment",
                                 "segment_id": segment.segment_id,
                                 "text": segment.text,
                                 "is_final": segment.is_final,
                             })
+                        else:
+                            logger.info("无识别结果: session_id=%s, segment=%s", 
+                                       session_id, segment)
 
             except WebSocketDisconnect:
                 logger.info("WebSocket 客户端断开连接: session_id=%s", session_id)

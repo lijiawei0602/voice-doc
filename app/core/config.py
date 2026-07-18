@@ -53,6 +53,9 @@ class Settings(BaseSettings):
 
     task_worker_count: int = 2
 
+    # 模型预加载配置
+    preload_models_on_startup: bool = True  # 启动时预加载模型
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

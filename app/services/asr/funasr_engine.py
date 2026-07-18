@@ -103,6 +103,7 @@ class FunAsrEngine(BaseAsrEngine):
             "device": self.device,
             "hub": self.settings.funasr_hub,
             "model_cache_dir": str(self.settings.model_cache_dir),
+            "disable_update": True, # 新增此行关闭版本更新检查
         }
         try:
             try:
@@ -209,7 +210,11 @@ class FunAsrEngine(BaseAsrEngine):
 
         try:
             if len(audio_chunk) < 1600:  # 音频太短，忽略
+                logger.debug("音频块太短，忽略: session_id=%s, length=%s", session_id, len(audio_chunk))
                 return None
+
+            logger.info("开始流式识别: session_id=%s, audio_length=%s, is_final=%s", 
+                       session_id, len(audio_chunk), is_final)
 
             generate_kwargs = {
                 "input": audio_chunk,
@@ -224,11 +229,16 @@ class FunAsrEngine(BaseAsrEngine):
                 FunAsrEngine._streaming_model.generate, **generate_kwargs
             )
 
+            logger.info("FunASR 返回结果: session_id=%s, raw=%s", session_id, raw)
+
             result = raw[0] if isinstance(raw, list) else raw
             session["cache"] = result.get("cache", {})
 
             text = str(result.get("text", "")).strip()
+            logger.info("识别文本: session_id=%s, text='%s'", session_id, text)
+            
             if not text:
+                logger.info("识别结果为空: session_id=%s", session_id)
                 return None
 
             # 计算增量文本
@@ -247,6 +257,9 @@ class FunAsrEngine(BaseAsrEngine):
             )
             session["segment_id"] += 1
             session["full_text"] += incremental_text
+
+            logger.info("返回识别片段: session_id=%s, segment_id=%s, text='%s', is_final=%s",
+                       session_id, segment.segment_id, segment.text, is_final)
 
             return segment
 
