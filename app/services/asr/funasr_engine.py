@@ -219,7 +219,12 @@ class FunAsrEngine(BaseAsrEngine):
             return segment
 
         except Exception as exc:
+            import traceback
             logger.error("流式识别失败: session_id=%s, error=%s", session_id, exc)
+            logger.error("chunk_size 类型: %s, 值: %s", type(chunk_size), chunk_size)
+            logger.error("音频块长度: %s", len(audio_chunk) if audio_chunk is not None else "None")
+            logger.error("generate_kwargs: %s", generate_kwargs)
+            logger.error("异常堆栈: %s", traceback.format_exc())
             raise AppError(ERRORS["TRANSCRIPTION_FAILED"]) from exc
 
     async def stream_audio(
