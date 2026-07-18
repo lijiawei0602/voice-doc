@@ -189,3 +189,101 @@ async def websocket_stream_transcribe(websocket: WebSocket):
         if session_id:
             engine.close_streaming_session(session_id)
         logger.info("WebSocket 会话结束: session_id=%s", session_id)
+
+
+@router.post("/test")
+async def test_streaming():
+    """测试流式识别接口
+    
+    使用项目中的示例音频文件测试流式识别是否正常工作。
+    """
+    import soundfile as sf
+    from pathlib import Path
+    
+    engine = get_funasr_engine()
+    engine.load_streaming_model()
+    
+    # 查找示例音频文件
+    sample_files = [
+        Path("models/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/example/asr_example.wav"),
+        Path("./data/test_audio.wav"),
+        Path("./test_audio.wav"),
+    ]
+    
+    sample_file = None
+    for path in sample_files:
+        if path.exists():
+            sample_file = path
+            break
+    
+    if sample_file is None:
+        return {
+            "status": "error",
+            "message": "未找到测试音频文件",
+            "suggestion": "请上传一个音频文件到 ./data/test_audio.wav 或 ./test_audio.wav"
+        }
+    
+    logger.info("开始测试流式识别，使用文件: %s", sample_file)
+    
+    # 读取音频文件
+    try:
+        audio_data, sr = sf.read(sample_file, dtype='float32')
+        logger.info("音频信息: sample_rate=%s, channels=%s, length=%s", sr, audio_data.shape[1] if len(audio_data.shape) > 1 else 1, len(audio_data))
+        
+        # 如果是立体声，转为单声道
+        if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+            audio_data = audio_data.mean(axis=1)
+        
+        # 重采样到 16kHz（如果需要）
+        if sr != 16000:
+            import librosa
+            audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+            logger.info("重采样后长度: %s", len(audio_data))
+    except Exception as e:
+        logger.error("读取音频文件失败: %s", e)
+        return {"status": "error", "message": f"读取音频文件失败: {e}"}
+    
+    # 创建流式会话并测试
+    session_id = engine.create_streaming_session()
+    logger.info("创建测试会话: %s", session_id)
+    
+    # 分块处理
+    chunk_size = 16000  # 1秒音频
+    all_segments = []
+    full_text = []
+    
+    for i in range(0, len(audio_data), chunk_size):
+        chunk = audio_data[i:i + chunk_size]
+        is_final = (i + chunk_size >= len(audio_data))
+        
+        segment = await engine.stream_transcribe(
+            session_id, chunk, is_final=is_final
+        )
+        
+        if segment and segment.text:
+            all_segments.append(segment)
+            full_text.append(segment.text)
+            logger.info("识别片段 %d: '%s'", segment.segment_id, segment.text)
+    
+    engine.close_streaming_session(session_id)
+    
+    result_text = "".join(full_text)
+    logger.info("测试完成，识别结果: %s", result_text)
+    
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "audio_file": str(sample_file),
+        "sample_rate": sr,
+        "audio_length": len(audio_data),
+        "segment_count": len(all_segments),
+        "full_text": result_text,
+        "segments": [
+            {
+                "id": s.segment_id,
+                "text": s.text,
+                "is_final": s.is_final
+            }
+            for s in all_segments
+        ]
+    }
