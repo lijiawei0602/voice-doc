@@ -72,6 +72,7 @@ class FunAsrEngine(BaseAsrEngine):
             "device": self.device,
             "hub": self.settings.funasr_hub,
             "model_cache_dir": str(self.settings.model_cache_dir),
+            "disable_update": True, # 新增此行关闭版本更新检查
         }
         try:
             try:
