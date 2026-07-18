@@ -196,6 +196,7 @@ async def test_streaming():
     """测试流式识别接口
     
     使用项目中的示例音频文件测试流式识别是否正常工作。
+    支持格式: wav, m4a, mp3, webm, flac, ogg 等
     """
     import soundfile as sf
     from pathlib import Path
@@ -207,7 +208,12 @@ async def test_streaming():
     sample_files = [
         Path("models/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/example/asr_example.wav"),
         Path("./data/test_audio.wav"),
+        Path("./data/test_audio.m4a"),
+        Path("./data/test_audio.webm"),
+        Path("./data/test_audio.mp3"),
         Path("./test_audio.wav"),
+        Path("./test_audio.m4a"),
+        Path("./test_audio.webm"),
     ]
     
     sample_file = None
@@ -220,25 +226,39 @@ async def test_streaming():
         return {
             "status": "error",
             "message": "未找到测试音频文件",
-            "suggestion": "请上传一个音频文件到 ./data/test_audio.wav 或 ./test_audio.wav"
+            "suggestion": "请上传音频文件到 ./data/ 目录，支持 wav/m4a/webm/mp3/flac 等格式"
         }
     
     logger.info("开始测试流式识别，使用文件: %s", sample_file)
     
-    # 读取音频文件
+    # 读取音频文件（支持多种格式）
     try:
-        audio_data, sr = sf.read(sample_file, dtype='float32')
-        logger.info("音频信息: sample_rate=%s, channels=%s, length=%s", sr, audio_data.shape[1] if len(audio_data.shape) > 1 else 1, len(audio_data))
+        import librosa
         
-        # 如果是立体声，转为单声道
-        if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
-            audio_data = audio_data.mean(axis=1)
+        # soundfile 支持的格式
+        soundfile_exts = {'.wav', '.flac', '.ogg'}
         
-        # 重采样到 16kHz（如果需要）
-        if sr != 16000:
-            import librosa
-            audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
-            logger.info("重采样后长度: %s", len(audio_data))
+        if sample_file.suffix.lower() in soundfile_exts:
+            # 使用 soundfile 读取
+            audio_data, sr = sf.read(sample_file, dtype='float32')
+            logger.info("使用 soundfile 读取: %s", sample_file)
+            logger.info("音频信息: sample_rate=%s, channels=%s, length=%s", sr, 
+                       audio_data.shape[1] if len(audio_data.shape) > 1 else 1, len(audio_data))
+            
+            # 立体声转单声道
+            if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+                audio_data = audio_data.mean(axis=1)
+            
+            # 重采样到 16kHz
+            if sr != 16000:
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+                logger.info("重采样后: sample_rate=16000, length=%s", len(audio_data))
+        else:
+            # 使用 librosa 读取（支持 m4a, mp3, webm 等）
+            audio_data, sr = librosa.load(sample_file, sr=16000, mono=True)
+            logger.info("使用 librosa 读取: %s", sample_file)
+            logger.info("音频信息: sample_rate=%s, length=%s", sr, len(audio_data))
+            
     except Exception as e:
         logger.error("读取音频文件失败: %s", e)
         return {"status": "error", "message": f"读取音频文件失败: {e}"}
@@ -274,7 +294,7 @@ async def test_streaming():
         "status": "success",
         "session_id": session_id,
         "audio_file": str(sample_file),
-        "sample_rate": sr,
+        "sample_rate": 16000,
         "audio_length": len(audio_data),
         "segment_count": len(all_segments),
         "full_text": result_text,
