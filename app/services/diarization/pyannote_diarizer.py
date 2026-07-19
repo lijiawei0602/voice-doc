@@ -35,18 +35,13 @@ class PyannoteDiarizer:
             logger.error("pyannote.audio 导入失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
+        # 设置 HuggingFace token（新版 API 使用 use_auth_token）
         try:
-            try:
-                self.pipeline = Pipeline.from_pretrained(
-                    self.settings.pyannote_model,
-                    use_auth_token=self.settings.pyannote_auth_token,
-                    cache_dir=str(self.settings.model_cache_dir),
-                )
-            except TypeError:
-                self.pipeline = Pipeline.from_pretrained(
-                    self.settings.pyannote_model,
-                    use_auth_token=self.settings.pyannote_auth_token,
-                )
+            self.pipeline = Pipeline.from_pretrained(
+                self.settings.pyannote_model,
+                use_auth_token=self.settings.pyannote_auth_token,
+                cache_dir=str(self.settings.model_cache_dir),
+            )
             if self.device.startswith("cuda"):
                 self.pipeline.to(torch.device("cuda"))
             logger.info("pyannote 说话人分离模型加载完成，device=%s", self.device)
