@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -382,11 +383,12 @@ class FunAsrEngine(BaseAsrEngine):
             result = raw
         sentence_info = result.get("sentence_info", []) or []
 
+        # 诊断：打印完整的 sentence_info 结构
+        logger.info("sentence_info 完整内容: %s", json.dumps(sentence_info, ensure_ascii=False, indent=2))
+
         # 诊断：检查 FunASR 返回的说话人信息
         spk_values = set(item.get("spk") for item in sentence_info) if sentence_info else set()
         logger.info("FunASR 返回: sentence_info 数量=%d, spk 值=%s", len(sentence_info), spk_values)
-        if sentence_info:
-            logger.info("第一个片段数据: %s", dict(sentence_info[0]))
 
         segments: list[TranscriptSegment] = []
         if sentence_info:
