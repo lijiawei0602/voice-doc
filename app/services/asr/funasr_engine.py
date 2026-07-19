@@ -30,7 +30,16 @@ def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
     elif "paraformer" in model_name_lower:
         keywords = ["paraformer"]
     else:
-        keywords = [kw.lower() for kw in model_name.replace("/", "_").replace("-", "_").split(
+        keywords = [kw.lower() for kw in model_name.replace("/", "_").replace("-", "_").split("_") if kw]
+
+    for item in cache_dir.rglob("*"):
+        if item.is_dir():
+            item_name_lower = item.name.lower()
+            if all(kw in item_name_lower for kw in keywords):
+                return True
+
+    return False
+
 
 # 流式识别默认参数（参考 FunASR 官方示例）
 DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
