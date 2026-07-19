@@ -17,6 +17,17 @@ from app.utils.device import detect_device
 
 logger = get_logger(__name__)
 
+
+def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
+    """检查本地是否有缓存模型"""
+    if not cache_dir.exists():
+        return False
+    # 检查缓存目录中是否存在对应的模型文件夹
+    for item in cache_dir.iterdir():
+        if item.is_dir() and model_name.replace("/", "_").lower() in item.name.lower():
+            return True
+    return False
+
 # 流式识别默认参数（参考 FunASR 官方示例）
 DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
 DEFAULT_SAMPLE_RATE = 16000

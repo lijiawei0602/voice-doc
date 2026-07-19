@@ -37,15 +37,21 @@ def on_startup() -> None:
     if settings.preload_models_on_startup:
         logger.info("开始预加载模型...")
         try:
-            from app.services.asr.funasr_engine import get_funasr_engine
+            from app.services.asr.funasr_engine import check_local_model_cache, get_funasr_engine
             
-            # 加载普通识别模型
-            logger.info("  - 加载普通识别模型: %s", settings.funasr_model)
+            cache_dir = settings.model_cache_dir
+            
+            # 检查普通识别模型缓存
+            has_normal_cache = check_local_model_cache(settings.funasr_model, cache_dir)
+            cache_status = "本地缓存" if has_normal_cache else "在线加载"
+            logger.info("  - 加载普通识别模型 [%s] (%s)...", settings.funasr_model, cache_status)
             engine = get_funasr_engine()
             logger.info("  ✓ 普通识别模型加载完成")
             
-            # 加载流式识别模型
-            logger.info("  - 加载流式识别模型: %s", settings.funasr_streaming_model)
+            # 检查流式识别模型缓存
+            has_streaming_cache = check_local_model_cache(settings.funasr_streaming_model, cache_dir)
+            cache_status = "本地缓存" if has_streaming_cache else "在线加载"
+            logger.info("  - 加载流式识别模型 [%s] (%s)...", settings.funasr_streaming_model, cache_status)
             engine.load_streaming_model()
             logger.info("  ✓ 流式识别模型加载完成")
             
