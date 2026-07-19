@@ -23,13 +23,14 @@ def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
     if not cache_dir.exists():
         return False
     
-    model_name_lower = model_name.replace("/", "_").lower()
+    model_name_lower = model_name.lower()
     
-    for item in cache_dir.rglob("*"):
-        if model_name_lower in item.name.lower():
-            return True
-    
-    return False
+    if "streaming" in model_name_lower:
+        keywords = ["paraformer", "online"]
+    elif "paraformer" in model_name_lower:
+        keywords = ["paraformer"]
+    else:
+        keywords = [kw.lower() for kw in model_name.replace("/", "_").replace("-", "_").split(
 
 # 流式识别默认参数（参考 FunASR 官方示例）
 DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
