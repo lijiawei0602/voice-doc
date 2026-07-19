@@ -59,7 +59,7 @@ voice-doc/
 ## 2. 功能说明
 
 - `FastAPI` RESTful 接口，自带 Swagger 文档：`/docs`
-- 支持 `mp3/wav/flac/m4a`
+- 支持 `mp3/wav/flac/m4a/webm/ogg/aac`
 - 自动预处理：重采样为 `16k/mono wav`，并做基础滤波与降噪
 - 输出完整识别结果：
   - 全量文本

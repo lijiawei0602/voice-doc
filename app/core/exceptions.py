@@ -19,7 +19,7 @@ class AppError(Exception):
 ERRORS = {
     "INVALID_AUDIO_FORMAT": ErrorDetail(
         code="INVALID_AUDIO_FORMAT",
-        message="仅支持 mp3/wav/flac/m4a 音频格式。",
+        message="仅支持 mp3/wav/flac/m4a/webm/ogg/aac 音频格式。",
         http_status=400,
     ),
     "FILE_TOO_LARGE": ErrorDetail(
