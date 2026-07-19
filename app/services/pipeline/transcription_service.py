@@ -42,10 +42,26 @@ class TranscriptionService:
         try:
             normalized_path, duration_seconds = preprocess_audio(source_path)
             chunks = split_audio_if_needed(normalized_path, duration_seconds)
+            needs_spk_diarization = (
+                self.settings.engine == "funasr"
+                and self.settings.funasr_spk_model
+                and self.settings.funasr_spk_model.lower() not in ("", "none", "false")
+            )
+            if needs_spk_diarization and len(chunks) > 1:
+                logger.info("启用说话人分离，跳过预分片，直接处理原始文件: path=%s", normalized_path)
+                chunks = [
+                    AudioChunk(
+                        path=normalized_path,
+                        index=0,
+                        start_ms=0,
+                        end_ms=int(duration_seconds * 1000),
+                    )
+                ]
             merged_segments: list[TranscriptSegment] = []
             metadata: dict[str, object] = {
                 "chunk_count": len(chunks),
                 "chunk_seconds": self.settings.audio_chunk_seconds,
+                "spk_diarization": needs_spk_diarization,
             }
 
             for chunk in chunks:
