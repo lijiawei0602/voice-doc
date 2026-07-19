@@ -39,7 +39,7 @@ class PyannoteDiarizer:
         try:
             self.pipeline = Pipeline.from_pretrained(
                 self.settings.pyannote_model,
-                use_auth_token=self.settings.pyannote_auth_token,
+                token=self.settings.pyannote_auth_token,
                 cache_dir=str(self.settings.model_cache_dir),
             )
             if self.device.startswith("cuda"):
