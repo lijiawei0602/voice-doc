@@ -13,7 +13,6 @@ from app.core.logging import get_logger
 from app.models.schemas import StreamingSegment, StreamingResult
 from app.models.schemas import TranscriptSegment
 from app.services.asr.base import BaseAsrEngine, EngineResult
-from app.services.diarization.pyannote_diarizer import PyannoteDiarizer
 from app.utils.device import detect_device
 
 logger = get_logger(__name__)
@@ -72,8 +71,6 @@ class FunAsrEngine(BaseAsrEngine):
         self.settings = get_settings()
         self.device = detect_device()
         self._streaming_sessions: dict[str, dict] = {}
-        # 说话人分离器（用于替代 FunASR 内置 cam++）
-        self.diarizer = PyannoteDiarizer()
 
     @property
     def model(self) -> Any:
@@ -92,16 +89,23 @@ class FunAsrEngine(BaseAsrEngine):
             logger.error("FunASR 导入失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
+        # 构建模型参数字典（跳过 None 值）
         model_kwargs = {
             "model": self.settings.funasr_model,
             "vad_model": self.settings.funasr_vad_model,
-            "punc_model": self.settings.funasr_punc_model,
             "spk_model": self.settings.funasr_spk_model,
             "device": self.device,
             "hub": self.settings.funasr_hub,
             "model_cache_dir": str(self.settings.model_cache_dir),
-            "disable_update": True, # 新增此行关闭版本更新检查
+            "disable_update": True,
         }
+        # 只有非 None 时才添加 punc_model（SenseVoice 不需要）
+        if self.settings.funasr_punc_model:
+            model_kwargs["punc_model"] = self.settings.funasr_punc_model
+        # 添加 vad_kwargs（SenseVoice 需要）
+        if self.settings.funasr_vad_kwargs:
+            model_kwargs["vad_kwargs"] = self.settings.funasr_vad_kwargs
+        
         try:
             try:
                 FunAsrEngine._shared_model = AutoModel(**model_kwargs)
@@ -109,7 +113,7 @@ class FunAsrEngine(BaseAsrEngine):
                 model_kwargs.pop("model_cache_dir", None)
                 FunAsrEngine._shared_model = AutoModel(**model_kwargs)
             FunAsrEngine._model_initialized = True
-            logger.info("FunASR 模型加载完成，device=%s", self.device)
+            logger.info("FunASR 模型加载完成: model=%s, device=%s", self.settings.funasr_model, self.device)
         except Exception as exc:
             logger.error("FunASR 模型加载失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
@@ -360,9 +364,18 @@ class FunAsrEngine(BaseAsrEngine):
         self.load()
 
         try:
+            # SenseVoice 参数
+            generate_kwargs = {
+                "batch_size_s": self.settings.batch_size_seconds,
+                "cache": {},
+                "language": "auto",
+                "use_itn": True,
+                "merge_vad": True,
+                "merge_length_s": 15,
+            }
             raw = self.model.generate(
                 input=str(audio_path),
-                batch_size_s=self.settings.batch_size_seconds,
+                **generate_kwargs,
             )
         except MemoryError as exc:
             raise AppError(ERRORS["MEMORY_OVERFLOW"]) from exc
@@ -385,13 +398,27 @@ class FunAsrEngine(BaseAsrEngine):
             result = raw
         sentence_info = result.get("sentence_info", []) or []
 
-        # 使用 Pyannote 进行说话人分离（替代 FunASR 内置 cam++）
-        speaker_turns = self.diarizer.diarize(audio_path)
-        logger.info("Pyannote 说话人分离结果: %d 个说话人, %d 个片段", 
-                   len(set(t.speaker for t in speaker_turns)), len(speaker_turns))
-
-        # 将 FunASR 句子与 Pyannote 说话人时间对齐
-        segments = self._merge_with_speaker_turns(sentence_info, speaker_turns)
+        # 使用 FunASR 内置说话人分离（cam++）
+        segments: list[TranscriptSegment] = []
+        if sentence_info:
+            for item in sentence_info:
+                segments.append(
+                    TranscriptSegment(
+                        speaker=self._normalize_speaker(item.get("spk")),
+                        start_ms=int(item.get("start", 0)),
+                        end_ms=int(item.get("end", 0)),
+                        text=str(item.get("text", "")).strip(),
+                    )
+                )
+        else:
+            segments.append(
+                TranscriptSegment(
+                    speaker="spk0",
+                    start_ms=0,
+                    end_ms=0,
+                    text=str(result.get("text", "")).strip(),
+                )
+            )
 
         return EngineResult(
             text=str(result.get("text", "")).strip(),
@@ -402,44 +429,6 @@ class FunAsrEngine(BaseAsrEngine):
                 "timestamps": result.get("timestamp"),
             },
         )
-
-    def _merge_with_speaker_turns(
-        self,
-        sentence_info: list[dict],
-        speaker_turns: list[Any],
-    ) -> list[TranscriptSegment]:
-        """将 FunASR 句子与 Pyannote 说话人时间对齐"""
-        if not sentence_info:
-            return []
-        
-        segments: list[TranscriptSegment] = []
-        
-        for item in sentence_info:
-            start_ms = int(item.get("start", 0))
-            end_ms = int(item.get("end", 0))
-            text = str(item.get("text", "")).strip()
-            
-            if not text:
-                continue
-            
-            # 找到与该句子时间重叠的说话人
-            speaker = "spk0"
-            for turn in speaker_turns:
-                # 检查时间是否重叠
-                if start_ms < turn.end_ms and end_ms > turn.start_ms:
-                    speaker = turn.speaker
-                    break
-            
-            segments.append(
-                TranscriptSegment(
-                    speaker=speaker,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                    text=text,
-                )
-            )
-        
-        return segments
 
     @staticmethod
     def _normalize_speaker(value: Any) -> str:

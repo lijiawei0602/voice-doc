@@ -35,12 +35,13 @@ class Settings(BaseSettings):
         default_factory=lambda: [".mp3", ".wav", ".flac", ".m4a", ".webm", ".ogg", ".aac"]
     )
 
-    funasr_model: str = "paraformer-zh"
+    funasr_model: str = "iic/SenseVoiceSmall"
     funasr_streaming_model: str = "paraformer-zh-streaming"
     funasr_vad_model: str = "fsmn-vad"
-    funasr_punc_model: str = "ct-punc"
+    funasr_punc_model: Optional[str] = None  # SenseVoice 不需要标点模型
     funasr_spk_model: str = "cam++"
     funasr_hub: str = "ms"
+    funasr_vad_kwargs: Optional[dict] = None  # 可选：{"max_single_segment_time": 30000}
 
     whisper_model: str = "small"
     whisper_language: Optional[str] = None
