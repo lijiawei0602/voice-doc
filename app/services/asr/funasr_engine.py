@@ -200,7 +200,7 @@ class FunAsrEngine(BaseAsrEngine):
         encoder_chunk_look_back: int = 4,
         decoder_chunk_look_back: int = 1,
     ) -> StreamingSegment | None:
-        """处理单个音频块进行流式识别
+        """处理单个音频块进行流式识别（参考 FunASR 官方示例）
 
         Args:
             session_id: 会话ID
@@ -217,70 +217,42 @@ class FunAsrEngine(BaseAsrEngine):
 
         session = self._streaming_sessions[session_id]
         
-        # 确保 chunk_size 是正确的列表类型
-        chunk_size = session.get("chunk_size", DEFAULT_CHUNK_SIZE)
-        if isinstance(chunk_size, str):
-            try:
-                import json as json_lib
-                chunk_size = json_lib.loads(chunk_size)
-            except Exception:
-                chunk_size = DEFAULT_CHUNK_SIZE
-        if not isinstance(chunk_size, (list, tuple)) or len(chunk_size) < 2:
-            chunk_size = DEFAULT_CHUNK_SIZE
-        try:
-            chunk_size = [int(x) for x in chunk_size[:3]]
-        except (ValueError, TypeError):
-            chunk_size = DEFAULT_CHUNK_SIZE
+        chunk_size = DEFAULT_CHUNK_SIZE  # [0, 10, 5]
 
         try:
-            if len(audio_chunk) < 1600:  # 音频太短，忽略
-                logger.debug("音频块太短，忽略: session_id=%s, length=%s", session_id, len(audio_chunk))
-                return None
-
             logger.info("开始流式识别: session_id=%s, audio_length=%s, is_final=%s", 
                        session_id, len(audio_chunk), is_final)
 
-            generate_kwargs = {
-                "input": audio_chunk,
-                "cache": session["cache"],
-                "is_final": is_final,
-                "chunk_size": chunk_size,
-                "encoder_chunk_look_back": encoder_chunk_look_back,
-                "decoder_chunk_look_back": decoder_chunk_look_back,
-            }
-
-            raw = await asyncio.to_thread(
-                FunAsrEngine._streaming_model.generate, **generate_kwargs
+            res = await asyncio.to_thread(
+                FunAsrEngine._streaming_model.generate,
+                input=audio_chunk,
+                cache=session["cache"],
+                is_final=is_final,
+                chunk_size=chunk_size,
+                encoder_chunk_look_back=encoder_chunk_look_back,
+                decoder_chunk_look_back=decoder_chunk_look_back,
             )
 
-            logger.info("FunASR 返回结果: session_id=%s, raw=%s", session_id, raw)
+            logger.info("FunASR 返回结果: session_id=%s, res=%s", session_id, res)
 
-            result = raw[0] if isinstance(raw, list) else raw
-            session["cache"] = result.get("cache", {})
-
-            text = str(result.get("text", "")).strip()
-            logger.info("识别文本: session_id=%s, text='%s'", session_id, text)
-            
-            if not text:
+            if not res or not res[0].get("text"):
                 logger.info("识别结果为空: session_id=%s", session_id)
                 return None
 
-            # 计算增量文本
-            incremental_text = text
-            if not is_final and text.startswith(session["last_text"]):
-                incremental_text = text[len(session["last_text"]):]
-            session["last_text"] = text
+            session["cache"] = res[0].get("cache", {})
+            text = res[0]["text"]
+            logger.info("识别文本: session_id=%s, text='%s'", session_id, text)
 
             segment = StreamingSegment(
                 segment_id=session["segment_id"],
-                text=incremental_text,
+                text=text,
                 start_ms=0,
                 end_ms=0,
                 is_final=is_final,
                 speaker="spk0",
             )
             session["segment_id"] += 1
-            session["full_text"] += incremental_text
+            session["full_text"] += text
 
             logger.info("返回识别片段: session_id=%s, segment_id=%s, text='%s', is_final=%s",
                        session_id, segment.segment_id, segment.text, is_final)
