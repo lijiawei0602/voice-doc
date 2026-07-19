@@ -25,13 +25,9 @@ def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
     
     model_name_lower = model_name.replace("/", "_").lower()
     
-    for root, dirs, files in cache_dir.walk():
-        for d in dirs:
-            if model_name_lower in d.name.lower():
-                return True
-        for f in files:
-            if model_name_lower in f.name.lower():
-                return True
+    for item in cache_dir.rglob("*"):
+        if model_name_lower in item.name.lower():
+            return True
     
     return False
 
