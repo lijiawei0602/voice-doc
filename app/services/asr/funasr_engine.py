@@ -330,6 +330,8 @@ class FunAsrEngine(BaseAsrEngine):
         for i in range(total_chunks):
             chunk = audio_data[i * chunk_stride:(i + 1) * chunk_stride]
             chunk_is_final = is_final or (i == total_chunks - 1)
+            logger.info("流式分块: i=%d, total_chunks=%d, is_final=%s, chunk_is_final=%s", 
+                       i, total_chunks, is_final, chunk_is_final)
 
             segment = await self.stream_transcribe(
                 session_id=session_id,
