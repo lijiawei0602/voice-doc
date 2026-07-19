@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,7 +36,10 @@ class PyannoteDiarizer:
             logger.error("pyannote.audio 导入失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
-        # 设置 HuggingFace token（新版 API 使用 use_auth_token）
+        # 设置 HuggingFace 镜像（解决中国访问问题）
+        if not os.environ.get("HF_ENDPOINT"):
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        
         try:
             self.pipeline = Pipeline.from_pretrained(
                 self.settings.pyannote_model,
