@@ -45,6 +45,8 @@ def on_startup() -> None:
             has_normal_cache = check_local_model_cache(settings.funasr_model, cache_dir)
             cache_status = "本地缓存" if has_normal_cache else "在线加载"
             logger.info("  - 加载普通识别模型 [%s] (%s)...", settings.funasr_model, cache_status)
+            logger.info("    - spk_model: %s", settings.funasr_spk_model)
+            logger.info("    - punc_model: %s", settings.funasr_punc_model)
             engine = get_funasr_engine()
             logger.info("  ✓ 普通识别模型加载完成")
             
