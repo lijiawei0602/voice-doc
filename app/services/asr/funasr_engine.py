@@ -415,7 +415,7 @@ class FunAsrEngine(BaseAsrEngine):
                         speaker=self._normalize_speaker(item.get("spk")),
                         start_ms=int(item.get("start", 0)),
                         end_ms=int(item.get("end", 0)),
-                        text=str(item.get("text", "")).strip(),
+                        text=str(item.get("sentence", "")).strip(),
                     )
                 )
         else:
