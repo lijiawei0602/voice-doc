@@ -42,6 +42,23 @@ def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
     return False
 
 
+def sensevoice_text_postprocess(text: str) -> str:
+    """清理 SenseVoice 专用控制标记符，返回纯文本
+    
+    SenseVoice 输出示例: "<|zh|><|EMO_UNKNOWN|><|Speech|><|withitn|>嗯。"
+    清理后: "嗯。"
+    """
+    import re
+    
+    if not text:
+        return text
+    
+    # 移除 SenseVoice 控制标记符 <|xxx|>
+    cleaned = re.sub(r'<\|[^|]*\|>', '', text)
+    
+    return cleaned.strip()
+
+
 # 流式识别默认参数（参考 FunASR 官方示例）
 DEFAULT_CHUNK_SIZE = [0, 10, 5]  # 600ms 显示，300ms 前瞻
 DEFAULT_SAMPLE_RATE = 16000
@@ -398,38 +415,39 @@ class FunAsrEngine(BaseAsrEngine):
         else:
             result = raw
         # 诊断：打印完整结果结构
-        logger.info("FunASR 返回 keys: %s", list(result.keys()))
-        logger.info("FunASR 完整结果: %s", json.dumps(result, ensure_ascii=False, indent=2))
+        # logger.info("FunASR 完整结果: %s", json.dumps(result, ensure_ascii=False, indent=2))
         
         sentence_info = result.get("sentence_info", []) or []
-
-        # 诊断：打印 sentence_info
-        logger.info("sentence_info 完整内容: %s", json.dumps(sentence_info, ensure_ascii=False, indent=2))
 
         # 使用 FunASR 内置说话人分离（cam++）
         segments: list[TranscriptSegment] = []
         if sentence_info:
             for item in sentence_info:
+                raw_text = item.get("sentence") or item.get("text", "")
                 segments.append(
                     TranscriptSegment(
                         speaker=self._normalize_speaker(item.get("spk")),
                         start_ms=int(item.get("start", 0)),
                         end_ms=int(item.get("end", 0)),
-                        text=str(item.get("sentence", "")).strip(),
+                        text=sensevoice_text_postprocess(str(raw_text)),
                     )
                 )
         else:
+            raw_text = result.get("text", "")
             segments.append(
                 TranscriptSegment(
                     speaker="spk0",
                     start_ms=0,
                     end_ms=0,
-                    text=str(result.get("text", "")).strip(),
+                    text=sensevoice_text_postprocess(str(raw_text)),
                 )
             )
 
+        # 合并所有片段文本并清理
+        full_text = " ".join(s.text for s in segments if s.text).strip()
+        
         return EngineResult(
-            text=str(result.get("text", "")).strip(),
+            text=full_text,
             segments=segments,
             language=result.get("language"),
             metadata={
