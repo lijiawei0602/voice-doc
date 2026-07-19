@@ -14,6 +14,7 @@ from app.core.logging import get_logger
 from app.models.schemas import StreamingSegment, StreamingResult
 from app.models.schemas import TranscriptSegment
 from app.services.asr.base import BaseAsrEngine, EngineResult
+from app.services.diarization.pyannote_diarizer import PyannoteDiarizer
 from app.utils.device import detect_device
 
 logger = get_logger(__name__)
@@ -72,6 +73,8 @@ class FunAsrEngine(BaseAsrEngine):
         self.settings = get_settings()
         self.device = detect_device()
         self._streaming_sessions: dict[str, dict] = {}
+        # 说话人分离器（用于替代 FunASR 内置 cam++）
+        self.diarizer = PyannoteDiarizer()
 
     @property
     def model(self) -> Any:
@@ -383,33 +386,13 @@ class FunAsrEngine(BaseAsrEngine):
             result = raw
         sentence_info = result.get("sentence_info", []) or []
 
-        # 诊断：打印完整的 sentence_info 结构
-        logger.info("sentence_info 完整内容: %s", json.dumps(sentence_info, ensure_ascii=False, indent=2))
+        # 使用 Pyannote 进行说话人分离（替代 FunASR 内置 cam++）
+        speaker_turns = self.diarizer.diarize(audio_path)
+        logger.info("Pyannote 说话人分离结果: %d 个说话人, %d 个片段", 
+                   len(set(t.speaker for t in speaker_turns)), len(speaker_turns))
 
-        # 诊断：检查 FunASR 返回的说话人信息
-        spk_values = set(item.get("spk") for item in sentence_info) if sentence_info else set()
-        logger.info("FunASR 返回: sentence_info 数量=%d, spk 值=%s", len(sentence_info), spk_values)
-
-        segments: list[TranscriptSegment] = []
-        if sentence_info:
-            for item in sentence_info:
-                segments.append(
-                    TranscriptSegment(
-                        speaker=self._normalize_speaker(item.get("spk")),
-                        start_ms=int(item.get("start", 0)),
-                        end_ms=int(item.get("end", 0)),
-                        text=str(item.get("text", "")).strip(),
-                    )
-                )
-        else:
-            segments.append(
-                TranscriptSegment(
-                    speaker="spk0",
-                    start_ms=0,
-                    end_ms=0,
-                    text=str(result.get("text", "")).strip(),
-                )
-            )
+        # 将 FunASR 句子与 Pyannote 说话人时间对齐
+        segments = self._merge_with_speaker_turns(sentence_info, speaker_turns)
 
         return EngineResult(
             text=str(result.get("text", "")).strip(),
@@ -420,6 +403,44 @@ class FunAsrEngine(BaseAsrEngine):
                 "timestamps": result.get("timestamp"),
             },
         )
+
+    def _merge_with_speaker_turns(
+        self,
+        sentence_info: list[dict],
+        speaker_turns: list[Any],
+    ) -> list[TranscriptSegment]:
+        """将 FunASR 句子与 Pyannote 说话人时间对齐"""
+        if not sentence_info:
+            return []
+        
+        segments: list[TranscriptSegment] = []
+        
+        for item in sentence_info:
+            start_ms = int(item.get("start", 0))
+            end_ms = int(item.get("end", 0))
+            text = str(item.get("text", "")).strip()
+            
+            if not text:
+                continue
+            
+            # 找到与该句子时间重叠的说话人
+            speaker = "spk0"
+            for turn in speaker_turns:
+                # 检查时间是否重叠
+                if start_ms < turn.end_ms and end_ms > turn.start_ms:
+                    speaker = turn.speaker
+                    break
+            
+            segments.append(
+                TranscriptSegment(
+                    speaker=speaker,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    text=text,
+                )
+            )
+        
+        return segments
 
     @staticmethod
     def _normalize_speaker(value: Any) -> str:
