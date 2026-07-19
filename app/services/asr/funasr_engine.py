@@ -240,19 +240,21 @@ class FunAsrEngine(BaseAsrEngine):
                 return None
 
             session["cache"] = res[0].get("cache", {})
-            text = res[0]["text"]
+            text = res[0]["text"].strip()
             logger.info("识别文本: session_id=%s, text='%s'", session_id, text)
+            
+            session["full_text"] += text
 
             segment = StreamingSegment(
                 segment_id=session["segment_id"],
                 text=text,
+                full_text=session["full_text"],
                 start_ms=0,
                 end_ms=0,
                 is_final=is_final,
                 speaker="spk0",
             )
             session["segment_id"] += 1
-            session["full_text"] += text
 
             logger.info("返回识别片段: session_id=%s, segment_id=%s, text='%s', is_final=%s",
                        session_id, segment.segment_id, segment.text, is_final)
