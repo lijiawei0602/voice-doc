@@ -22,10 +22,17 @@ def check_local_model_cache(model_name: str, cache_dir: Path) -> bool:
     """检查本地是否有缓存模型"""
     if not cache_dir.exists():
         return False
-    # 检查缓存目录中是否存在对应的模型文件夹
-    for item in cache_dir.iterdir():
-        if item.is_dir() and model_name.replace("/", "_").lower() in item.name.lower():
-            return True
+    
+    model_name_lower = model_name.replace("/", "_").lower()
+    
+    for root, dirs, files in cache_dir.walk():
+        for d in dirs:
+            if model_name_lower in d.name.lower():
+                return True
+        for f in files:
+            if model_name_lower in f.name.lower():
+                return True
+    
     return False
 
 # 流式识别默认参数（参考 FunASR 官方示例）
