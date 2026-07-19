@@ -156,12 +156,13 @@ async def websocket_stream_transcribe(websocket: WebSocket):
                         )
 
                         if segment and segment.text:
-                            logger.info("发送识别结果: session_id=%s, segment_id=%s, text='%s'",
-                                       session_id, segment.segment_id, segment.text)
+                            logger.info("发送识别结果: session_id=%s, segment_id=%s, text='%s', full_text='%s'",
+                                       session_id, segment.segment_id, segment.text, segment.full_text)
                             await websocket.send_json({
                                 "type": "segment",
                                 "segment_id": segment.segment_id,
                                 "text": segment.text,
+                                "full_text": segment.full_text,
                                 "is_final": segment.is_final,
                             })
                         else:

@@ -243,11 +243,17 @@ class FunAsrEngine(BaseAsrEngine):
             text = res[0]["text"].strip()
             logger.info("识别文本: session_id=%s, text='%s'", session_id, text)
             
-            session["full_text"] += text
+            prev_text = session.get("last_text", "")
+            if prev_text and text.startswith(prev_text):
+                new_text = text[len(prev_text):]
+            else:
+                new_text = text
+            session["full_text"] += new_text
+            session["last_text"] = text
 
             segment = StreamingSegment(
                 segment_id=session["segment_id"],
-                text=text,
+                text=new_text,
                 full_text=session["full_text"],
                 start_ms=0,
                 end_ms=0,

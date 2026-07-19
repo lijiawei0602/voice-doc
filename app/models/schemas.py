@@ -66,6 +66,7 @@ class StreamingSegment(BaseModel):
     """流式识别片段"""
     segment_id: int
     text: str
+    full_text: str = ""
     start_ms: int = 0
     end_ms: int = 0
     is_final: bool = False
