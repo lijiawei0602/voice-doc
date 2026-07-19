@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     funasr_punc_model: Optional[str] = None  # SenseVoice 不需要标点模型
     funasr_spk_model: str = "cam++"
     funasr_hub: str = "ms"
-    funasr_vad_kwargs: Optional[dict] = None  # 可选：{"max_single_segment_time": 30000}
+    funasr_vad_kwargs: Optional[dict] = {"max_single_segment_time": 30000}  # 可选：{"max_single_segment_time": 30000}
 
     whisper_model: str = "small"
     whisper_language: Optional[str] = None

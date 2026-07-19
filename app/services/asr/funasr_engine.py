@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -396,7 +397,14 @@ class FunAsrEngine(BaseAsrEngine):
             result = raw[0]
         else:
             result = raw
+        # 诊断：打印完整结果结构
+        logger.info("FunASR 返回 keys: %s", list(result.keys()))
+        logger.info("FunASR 完整结果: %s", json.dumps(result, ensure_ascii=False, indent=2))
+        
         sentence_info = result.get("sentence_info", []) or []
+
+        # 诊断：打印 sentence_info
+        logger.info("sentence_info 完整内容: %s", json.dumps(sentence_info, ensure_ascii=False, indent=2))
 
         # 使用 FunASR 内置说话人分离（cam++）
         segments: list[TranscriptSegment] = []
