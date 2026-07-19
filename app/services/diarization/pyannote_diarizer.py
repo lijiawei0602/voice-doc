@@ -11,6 +11,9 @@ from app.utils.device import detect_device
 
 logger = get_logger(__name__)
 
+# 在模块加载时设置 HuggingFace 镜像（解决中国访问问题）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 
 @dataclass
 class SpeakerTurn:
@@ -36,10 +39,6 @@ class PyannoteDiarizer:
             logger.error("pyannote.audio 导入失败: %s", exc)
             raise AppError(ERRORS["MODEL_LOAD_FAILED"]) from exc
 
-        # 设置 HuggingFace 镜像（解决中国访问问题）
-        if not os.environ.get("HF_ENDPOINT"):
-            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-        
         try:
             self.pipeline = Pipeline.from_pretrained(
                 self.settings.pyannote_model,
