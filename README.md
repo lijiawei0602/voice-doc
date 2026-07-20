@@ -313,7 +313,219 @@ ENGINE=whisper
 - `MEMORY_OVERFLOW`
 - `INTERNAL_ERROR`
 
-## 13. 生产建议
+## 13. 实时会议纪要（1-pass + 2-pass 双路识别）
+
+### 13.1 功能概述
+
+基于 FunASR paraformer-zh-streaming 的流式双路识别方案，专为实时会议纪要场景优化：
+
+- **1-pass 流式识别**：实时输出滚动字幕，用于实时展示
+- **2-pass 全局修正**：满足触发条件时执行全局推理，输出最终纪要存档
+
+### 13.2 架构说明
+
+```
+音频流输入
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│           FSMN-VAD 静音检测              │
+│         （断句、分句、状态判断）           │
+└─────────────────────────────────────────┘
+    │
+    ├── 语音状态 ──→ 缓存音频 + 1-pass流式识别
+    │                    │
+    │                    ▼
+    │            实时字幕展示（1-pass结果）
+    │
+    └── 静音状态 ──→ 检查触发条件
+                          │
+                          ├── VAD静音超时(0.5s) → 2-pass
+                          ├── 长语音(6s) → 2-pass
+                          └── 会话结束 → 2-pass兜底
+                                    │
+                                    ▼
+                            最终纪要存档（2-pass结果）
+```
+
+### 13.3 2-pass 触发时机（会议场景标准）
+
+| 触发机制 | 触发条件 | 业务意义 |
+|---------|---------|---------|
+| VAD静音超时 | 连续静音 ≥ 500ms | 自然断句，用户说话停顿/换气 |
+| 长语音强制分片 | 单人连续说话 ≥ 6000ms | 防止ASR注意力漂移，保证识别质量 |
+| 会话结束兜底 | WebSocket关闭/音频结束 | 确保所有缓存内容被识别存档 |
+
+### 13.4 核心参数配置
+
+```python
+# 流式识别 chunk 配置（FunASR 官方推荐）
+CHUNK_SIZE = [0, 10, 5]  # [left, middle, right]
+# - left_chunks=0:  不回看左侧历史
+# - middle_chunks=10: 每块 600ms (10 × 60ms)
+# - right_chunks=5:  前瞻 300ms (5 × 60ms)
+
+# 音频参数
+DEFAULT_SAMPLE_RATE = 16000  # 必须16kHz单声道float32
+
+# 2-pass 触发参数
+VAD_SILENCE_TIMEOUT_MS = 500   # 静音超时 0.5s
+MAX_SPEECH_DURATION_MS = 6000  # 长语音分片 6s
+```
+
+### 13.5 WebSocket 接口
+
+连接地址：`ws://127.0.0.1:8000/api/v1/realtime-meeting/ws`
+
+**客户端发送消息：**
+
+```javascript
+// 1. 创建会议会话
+{"type": "start", "chunk_size": [0, 10, 5], "sample_rate": 16000}
+
+// 2. 发送音频数据（二进制 PCM，16kHz, 16位, 单声道）
+// 直接发送 ArrayBuffer
+
+// 3. 结束会议
+{"type": "end"}
+```
+
+**服务端返回消息：**
+
+```javascript
+// 会话创建成功
+{"type": "started", "session_id": "xxx"}
+
+// 1-pass 实时结果（用于展示）
+{"type": "realtime", "segment_id": 0, "text": "新增文字", "full_text": "完整文字"}
+
+// 2-pass 触发通知
+{"type": "twopass_trigger", "trigger": "vad_silence", "message": "..."}
+
+// 2-pass 最终结果（用于存档）
+{"type": "final_segment", "segment_id": 0, "speaker": "spk0", "text": "最终文字"}
+
+// 会议结束
+{"type": "finished", "session_id": "xxx", "full_text": "...", "segments": [...]}
+```
+
+### 13.6 REST 接口
+
+```bash
+# 测试接口
+POST /api/v1/realtime-meeting/test
+
+# 获取会话信息
+GET /api/v1/realtime-meeting/sessions/{session_id}
+
+# 获取最终纪要
+GET /api/v1/realtime-meeting/sessions/{session_id}/transcript
+```
+
+### 13.7 工程落地避坑清单
+
+1. **音频格式必须正确**
+   - 16kHz 单声道 float32
+   - PCM 16位小端序
+   - 避免采样率不匹配导致识别失败
+
+2. **VAD 参数调优**
+   - 会议场景：静音超时建议 300-500ms
+   - 访谈场景：可适当延长至 800ms
+   - 过短会导致句子被过度切分
+   - 过长会导致一句话识别不完整
+
+3. **长语音强制分片**
+   - 必须实现，**禁止省略**
+   - 超过6s的连续语音必须强制2-pass
+   - 防止ASR注意力机制漂移导致错误累积
+
+4. **2-pass 执行规范**
+   - `input=None` + `is_final=True`
+   - 执行后必须重置 ASR cache
+   - 防止跨句子识别污染
+
+5. **区分1-pass和2-pass用途**
+   - 1-pass结果：仅用于实时展示
+   - 2-pass结果：作为最终会议纪要存档
+   - 禁止将1-pass结果作为正式记录
+
+6. **会话关闭处理**
+   - WebSocket断开时必须执行最后的2-pass
+   - 确保缓存中的音频全部被识别
+   - 避免数据丢失
+
+7. **内存管理**
+   - 长时间运行时定期清理会话
+   - 监控 pending_audio_buffer 大小
+   - 避免内存泄漏
+
+### 13.8 依赖安装
+
+```bash
+# FunASR 及相关依赖
+pip install funasr>=1.2.7
+pip install modelscope>=1.17.1
+pip install numpy>=1.26.0
+pip install torch>=2.2.0
+pip install torchaudio>=2.2.0
+
+# WebSocket 客户端测试
+pip install websocket-client
+```
+
+### 13.9 客户端示例（Python）
+
+```python
+import asyncio
+import websockets
+import numpy as np
+import struct
+
+async def test_realtime_meeting():
+    uri = "ws://127.0.0.1:8000/api/v1/realtime-meeting/ws"
+
+    async with websockets.connect(uri) as ws:
+        # 1. 创建会话
+        await ws.send('{"type": "start"}')
+        resp = await ws.recv()
+        print(f"会话创建: {resp}")
+
+        # 2. 读取音频文件并发送
+        import soundfile as sf
+        audio, sr = sf.read("test.wav", dtype='float32')
+        if len(audio.shape) > 1:
+            audio = audio.mean(axis=1)
+        if sr != 16000:
+            import librosa
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+
+        # 转换为 PCM 16位
+        audio_int16 = (audio * 32767).astype(np.int16)
+        audio_bytes = audio_int16.tobytes()
+
+        # 分块发送（每秒一块）
+        chunk_size = 16000 * 2  # 1秒音频
+        for i in range(0, len(audio_bytes), chunk_size):
+            chunk = audio_bytes[i:i + chunk_size]
+            await ws.send(chunk)
+
+            # 接收识别结果
+            try:
+                resp = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                print(f"识别结果: {resp}")
+            except asyncio.TimeoutError:
+                pass
+
+        # 3. 结束会话
+        await ws.send('{"type": "end"}')
+        final = await ws.recv()
+        print(f"最终纪要: {final}")
+
+asyncio.run(test_realtime_meeting())
+```
+
+## 14. 生产建议
 
 - 建议使用 `gunicorn + uvicorn workers` 或容器化部署
 - 长音频建议走异步任务接口
